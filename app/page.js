@@ -52,15 +52,12 @@ export default function Home() {
     const existing = checks.find(c => c.project_id === project.id)
     if (existing) {
       await supabase.from('checks').delete().eq('id', existing.id)
-      setChecks(checks.filter(c => c.id !== existing.id))
     } else {
-      const { data } = await supabase
+      await supabase
         .from('checks')
         .insert({ store_id: selectedStore.id, project_id: project.id })
-        .select()
-        .single()
-      setChecks([...checks, data])
     }
+    window.location.reload()
   }
 
   function isChecked(projectId) {

@@ -39,15 +39,12 @@ export default function AdminPage() {
     const existing = checks.find(c => c.store_id === store.id && c.project_id === selectedProject.id)
     if (existing) {
       await supabase.from('checks').delete().eq('id', existing.id)
-      setChecks(checks.filter(c => c.id !== existing.id))
     } else {
-      const { data } = await supabase
+      await supabase
         .from('checks')
         .insert({ store_id: store.id, project_id: selectedProject.id })
-        .select()
-        .single()
-      if (data) setChecks([...checks, data])
     }
+    window.location.reload()
   }
 
   async function addProject() {
