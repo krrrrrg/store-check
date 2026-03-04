@@ -15,6 +15,8 @@ export default function AdminPage() {
   const [tab, setTab] = useState('dashboard')
   const [tooltip, setTooltip] = useState(null)
   const [tappedStore, setTappedStore] = useState(null)
+  const [pendingAdds, setPendingAdds] = useState([])
+  const [pendingDeletes, setPendingDeletes] = useState([])
 
   useEffect(() => { fetchAll() }, [])
 
@@ -31,21 +33,44 @@ export default function AdminPage() {
   }
 
   function isChecked(storeId, projectId) {
-    return checks.some(c => c.store_id === storeId && c.project_id === projectId)
+    const dbChecked = checks.some(c => c.store_id === storeId && c.project_id === projectId)
+    const dbCheck = checks.find(c => c.store_id === storeId && c.project_id === projectId)
+    if (dbChecked) {
+      return !pendingDeletes.includes(dbCheck.id)
+    }
+    return pendingAdds.some(a => a.store_id === storeId && a.project_id === projectId)
   }
 
-  async function toggleCheck(store) {
+  function toggleCheck(store) {
     if (!selectedProject) return
     const existing = checks.find(c => c.store_id === store.id && c.project_id === selectedProject.id)
     if (existing) {
-      await supabase.from('checks').delete().eq('id', existing.id)
+      if (pendingDeletes.includes(existing.id)) {
+        setPendingDeletes(pendingDeletes.filter(id => id !== existing.id))
+      } else {
+        setPendingDeletes([...pendingDeletes, existing.id])
+      }
     } else {
-      await supabase
-        .from('checks')
-        .insert({ store_id: store.id, project_id: selectedProject.id })
+      const idx = pendingAdds.findIndex(a => a.store_id === store.id && a.project_id === selectedProject.id)
+      if (idx >= 0) {
+        setPendingAdds(pendingAdds.filter((_, i) => i !== idx))
+      } else {
+        setPendingAdds([...pendingAdds, { store_id: store.id, project_id: selectedProject.id }])
+      }
+    }
+  }
+
+  async function confirmChanges() {
+    if (pendingDeletes.length > 0) {
+      await supabase.from('checks').delete().in('id', pendingDeletes)
+    }
+    if (pendingAdds.length > 0) {
+      await supabase.from('checks').insert(pendingAdds)
     }
     window.location.reload()
   }
+
+  const hasPendingChanges = pendingAdds.length > 0 || pendingDeletes.length > 0
 
   async function addProject() {
     if (!newProjectTitle.trim()) return
@@ -149,7 +174,7 @@ export default function AdminPage() {
               {projects.map(p => (
                 <button
                   key={p.id}
-                  onClick={() => setSelectedProject(p)}
+                  onClick={() => { setSelectedProject(p); setPendingAdds([]); setPendingDeletes([]) }}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                     selectedProject?.id === p.id
                       ? 'bg-green-500 text-white'
@@ -272,6 +297,15 @@ export default function AdminPage() {
           </div>
         )}
       </div>
+
+      {hasPendingChanges && (
+        <button
+          onClick={confirmChanges}
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-green-500 hover:bg-green-400 text-white px-8 py-3 rounded-full shadow-lg font-bold text-lg transition-all z-50"
+        >
+          확인 ({pendingAdds.length + pendingDeletes.length}건 변경)
+        </button>
+      )}
     </main>
   )
 }

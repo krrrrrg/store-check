@@ -10,6 +10,8 @@ export default function Home() {
   const [projects, setProjects] = useState([])
   const [checks, setChecks] = useState([])
   const [loading, setLoading] = useState(false)
+  const [pendingAdds, setPendingAdds] = useState([])
+  const [pendingDeletes, setPendingDeletes] = useState([])
 
   useEffect(() => {
     fetchProjects()
@@ -40,6 +42,8 @@ export default function Home() {
     setResults([])
     setQuery(store.name)
     setLoading(true)
+    setPendingAdds([])
+    setPendingDeletes([])
     const { data: checkData } = await supabase
       .from('checks')
       .select('*')
@@ -48,20 +52,47 @@ export default function Home() {
     setLoading(false)
   }
 
-  async function toggleCheck(project) {
+  function toggleCheck(project) {
     const existing = checks.find(c => c.project_id === project.id)
     if (existing) {
-      await supabase.from('checks').delete().eq('id', existing.id)
+      // 이미 DB에 있는 체크 → 삭제 대기열에 추가/제거
+      if (pendingDeletes.includes(existing.id)) {
+        setPendingDeletes(pendingDeletes.filter(id => id !== existing.id))
+      } else {
+        setPendingDeletes([...pendingDeletes, existing.id])
+      }
     } else {
-      await supabase
-        .from('checks')
-        .insert({ store_id: selectedStore.id, project_id: project.id })
+      // DB에 없는 체크 → 추가 대기열에 추가/제거
+      const idx = pendingAdds.findIndex(a => a.project_id === project.id)
+      if (idx >= 0) {
+        setPendingAdds(pendingAdds.filter((_, i) => i !== idx))
+      } else {
+        setPendingAdds([...pendingAdds, { store_id: selectedStore.id, project_id: project.id }])
+      }
+    }
+  }
+
+  async function confirmChanges() {
+    if (pendingDeletes.length > 0) {
+      await supabase.from('checks').delete().in('id', pendingDeletes)
+    }
+    if (pendingAdds.length > 0) {
+      await supabase.from('checks').insert(pendingAdds)
     }
     window.location.reload()
   }
 
+  const hasPendingChanges = pendingAdds.length > 0 || pendingDeletes.length > 0
+
   function isChecked(projectId) {
-    return checks.some(c => c.project_id === projectId)
+    const dbChecked = checks.some(c => c.project_id === projectId)
+    const dbCheck = checks.find(c => c.project_id === projectId)
+    if (dbChecked) {
+      // DB에 있지만 삭제 대기중이면 unchecked
+      return !pendingDeletes.includes(dbCheck.id)
+    }
+    // DB에 없지만 추가 대기중이면 checked
+    return pendingAdds.some(a => a.project_id === projectId)
   }
 
   return (
@@ -142,6 +173,15 @@ export default function Home() {
           <p className="text-green-600 text-sm mt-3 font-medium">
             ✅ {selectedStore.name} 선택됨 — 위 목록을 클릭해서 체크해주세요
           </p>
+        )}
+
+        {hasPendingChanges && (
+          <button
+            onClick={confirmChanges}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-green-500 hover:bg-green-400 text-white px-8 py-3 rounded-full shadow-lg font-bold text-lg transition-all z-50"
+          >
+            확인 ({pendingAdds.length + pendingDeletes.length}건 변경)
+          </button>
         )}
       </div>
     </main>
